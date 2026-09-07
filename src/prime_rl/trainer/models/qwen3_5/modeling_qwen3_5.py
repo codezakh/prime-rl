@@ -26,6 +26,7 @@ from prime_rl.trainer.models.qwen3_5_moe.modeling_qwen3_5_moe import (
     Qwen3_5MoeRMSNorm,
     Qwen3_5MoeRotaryEmbedding,
     normalize_qwen3_5_attn_implementation,
+    share_cp_context,
 )
 from prime_rl.trainer.models.qwen3_5_moe.mrope import build_qwen3_5_mrope_position_ids
 from prime_rl.utils.cp import setup_cp_attention_params, shard_for_cp, shard_position_ids_for_cp
@@ -253,6 +254,7 @@ class Qwen3_5Model(Qwen3_5PreTrainedModel):
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         cu_seqlens_are_pre_shard = seq_lens_are_pre_shard
+        share_cp_context(self, cu_seqlens, cu_seqlens_are_pre_shard)
 
         for decoder_layer in self.layers:
             hidden_states = decoder_layer(

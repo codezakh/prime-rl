@@ -84,6 +84,34 @@ class Qwen3_5MoeRMSNorm(nn.Module):
 # ---------------------------------------------------------------------------
 
 
+def share_cp_context(model: nn.Module, cu_seqlens: torch.Tensor, cu_seqlens_are_pre_shard: bool) -> None:
+    """Build this step's FLA CP context once and hand it to every linear-attention layer.
+
+    Call before the layer loop. The decoder layers are activation-checkpointed,
+    and building the context inside one runs `get_cp_cu_seqlens` -- searchsorted,
+    clamp, unique_consecutive, two casts, all producing int32 tensors -- within
+    the checkpointed region. Selective checkpointing records op outputs on the
+    forward and replays them in order on the recompute, so those int32 results
+    land in the same cache as everything else and a later `.float()` is handed
+    one: "Autograd not support dtype: Int". The context depends only on
+    `cu_seqlens` and the conv kernel size, which every layer shares, so building
+    it once here is both correct and strictly less work.
+    """
+    cp_group = getattr(model, "_cp_group", None)
+    if cp_group is None:
+        return
+    if not cu_seqlens_are_pre_shard:
+        raise ValueError("Qwen3.5 context parallelism requires full pre-shard sequence boundaries")
+    context = build_cp_context(
+        cu_seqlens=cu_seqlens.to(dtype=torch.int32),
+        group=cp_group,
+        conv1d_kernel_size=model.config.linear_conv_kernel_dim,
+    )
+    for layer in model.layers.modules():
+        if getattr(layer, "layer_type", None) == "linear_attention":
+            layer.linear_attn._prebuilt_cp_context = context
+
+
 class Qwen3_5MoeGatedDeltaNet(nn.Module):
     """GatedDeltaNet linear attention with Conv1d, beta/gamma gates, and chunk delta rule."""
 
@@ -133,7 +161,21 @@ class Qwen3_5MoeGatedDeltaNet(nn.Module):
         cu_seqlens: torch.LongTensor | None = None,
         cu_seqlens_are_pre_shard: bool = False,
     ) -> "FLACPContext | None":
-        """Build the FLA CP context from full pre-shard sequence boundaries."""
+        """Build the FLA CP context from full pre-shard sequence boundaries.
+
+        Prefers one the model built before its layer loop. Building it here
+        instead runs `get_cp_cu_seqlens` -- searchsorted, clamp,
+        unique_consecutive, two `.to()` casts, all producing int32 tensors --
+        *inside* the activation-checkpointed region. Selective checkpointing
+        records op outputs in the forward and replays them in order during the
+        recompute, so those int32 results end up in the same cache as everything
+        else, and a later `.float()` is handed one: "Autograd not support dtype:
+        Int". The context is identical for every layer, so building it once
+        before the loop is both cheaper and correct.
+        """
+        prebuilt = getattr(self, "_prebuilt_cp_context", None)
+        if prebuilt is not None:
+            return prebuilt
         cp_group = getattr(self, "cp_group", None)
         if cp_group is None:
             return None
@@ -700,6 +742,7 @@ class Qwen3_5MoeModel(Qwen3_5MoePreTrainedModel):
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         cu_seqlens_are_pre_shard = seq_lens_are_pre_shard
+        share_cp_context(self, cu_seqlens, cu_seqlens_are_pre_shard)
 
         for layer_idx, decoder_layer in enumerate(self.layers):
             routed_experts_layer = routed_experts[:, :, layer_idx, :] if routed_experts is not None else None
