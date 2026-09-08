@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import cast
 
@@ -1154,6 +1155,31 @@ def apply_quantization(model: nn.Module, config: ModelConfig) -> None:
         replace_linear_with_mxfp8_linear(model, recipe=quant.recipe, ignore_modules=quant.ignore_patterns)
 
 
+def configure_lora_base_storage(model: nn.Module, config: ModelConfig) -> None:
+    """Cast frozen storage before FSDP materializes parameters, preserving master weights."""
+    if config.lora is None or config.lora_base_dtype is None:
+        return
+    dtype = DTYPE_MAP[config.lora_base_dtype]
+    keep_fp32 = getattr(model, "keep_in_fp32_for_weight_transfer", lambda name: False)
+    preserved_modules = set(getattr(model, "_keep_in_fp32_modules", None) or ()) | set(
+        getattr(model, "_keep_in_fp32_modules_strict", None) or ()
+    )
+    converted = 0
+    for name, parameter in model.named_parameters():
+        if parameter.requires_grad or not parameter.is_floating_point():
+            continue
+        canonical_name = name.replace(".base_layer.", ".")
+        preserve = keep_fp32(canonical_name) or any(
+            fnmatchcase(f".{canonical_name}.", f"*.{part}.*") for part in preserved_modules
+        )
+        target = torch.float32 if preserve else dtype
+        parameter.data = parameter.data.to(target)
+        converted += parameter.numel()
+    get_logger().info(
+        f"Configured {converted:,} frozen LoRA base parameters with {dtype} storage (FP32 exceptions retained)"
+    )
+
+
 def configure_trainable_parameters(model: nn.Module, config: ModelConfig) -> nn.Module | None:
     """Apply LoRA and identify any vision encoder that must remain frozen."""
     frozen_vision_encoder = None
@@ -1166,6 +1192,7 @@ def configure_trainable_parameters(model: nn.Module, config: ModelConfig) -> nn.
 
     if config.lora is not None:
         apply_lora_to_model(model, config.lora)
+        configure_lora_base_storage(model, config)
     return frozen_vision_encoder
 
 

@@ -13,6 +13,39 @@ from prime_rl.trainer.models.qwen3_5_moe import Qwen3_5MoeConfig
 from prime_rl.utils.cp import setup_model_cp
 
 
+@pytest.mark.parametrize("base_dtype", [None, "bfloat16", "float32"])
+def test_lora_storage_keeps_trainable_weights_and_precision_exceptions_fp32(base_dtype):
+    from prime_rl.configs.trainer import LoRAConfig, ModelConfig
+    from prime_rl.trainer.model import configure_trainable_parameters
+
+    with torch.device("meta"):
+        model = Qwen3_5ForCausalLM(_tiny_text_config())
+    model._keep_in_fp32_modules_strict = ["model.layers.*.mlp.down_proj"]
+    config = ModelConfig(
+        name="unused",
+        lora=LoRAConfig(rank=32, alpha=32, target_modules=["q_proj", "in_proj_qkv", "gate_proj"]),
+        lora_base_dtype=base_dtype,
+    )
+    configure_trainable_parameters(model, config)
+    trainable = dict((n, p) for n, p in model.named_parameters() if p.requires_grad)
+    assert trainable
+    assert all(p.dtype == torch.float32 for p in trainable.values())
+    assert all("lora_" in n for n in trainable)
+    assert model.model.layers[0].linear_attn.A_log.dtype == torch.float32
+    assert model.model.layers[0].linear_attn.norm.weight.dtype == torch.float32
+    assert model.model.layers[0].mlp.down_proj.weight.dtype == torch.float32
+    expected = torch.bfloat16 if base_dtype == "bfloat16" else torch.float32
+    assert model.model.layers[0].linear_attn.in_proj_qkv.base_layer.weight.dtype == expected
+    assert model.model.embed_tokens.weight.dtype == expected
+
+
+def test_base_storage_override_requires_lora():
+    from prime_rl.configs.trainer import ModelConfig
+
+    with pytest.raises(ValueError, match="requires LoRA"):
+        ModelConfig(name="unused", lora_base_dtype="bfloat16")
+
+
 def _tiny_text_config(attn_impl: str = "flash_attention_2") -> Qwen3_5TextConfig:
     config = Qwen3_5TextConfig(
         vocab_size=128,

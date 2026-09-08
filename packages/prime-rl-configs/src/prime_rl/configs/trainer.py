@@ -296,6 +296,11 @@ class ModelConfig(BaseModelConfig):
     lora: LoRAConfig | None = None
     """LoRA configuration. If None, LoRA is disabled."""
 
+    lora_base_dtype: Literal["bfloat16", "float32"] | None = None
+    """Storage dtype for frozen LoRA base parameters. None preserves construction dtype.
+    Trainable parameters retain optimization_dtype; model FP32 transfer exceptions retain FP32 storage.
+    """
+
     debug: DebugModelConfig = DebugModelConfig()
     """Debugging knobs for the model and distributed training."""
 
@@ -331,6 +336,14 @@ class ModelConfig(BaseModelConfig):
                 "Context parallelism requires model.impl='custom' or 'auto' "
                 "(resolved to a custom PrimeRL implementation)"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_lora_base_dtype(self):
+        if self.lora_base_dtype is not None and self.lora is None:
+            raise ValueError("lora_base_dtype requires LoRA")
+        if self.lora_base_dtype is not None and self.quantization is not None:
+            raise ValueError("lora_base_dtype cannot be combined with quantization")
         return self
 
     @model_validator(mode="after")
