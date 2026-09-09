@@ -22,7 +22,7 @@ Resolution order: CLI > config files (left-to-right) > class defaults. Merging i
 Naming: CLI uses kebab-case (`--vllm.max-model-len`); TOML uses snake_case (`max_model_len`).
 
 GPU selection: `CUDA_VISIBLE_DEVICES` accepts numeric indices or CUDA `GPU-...`
-UUIDs (and MIG identifiers). The local launcher preserves them when splitting
+UUIDs. The local launcher preserves them when splitting
 inference and trainer devices. Prefer full UUIDs from `nvidia-smi` when physical
 card identity matters: a failed GPU can change CUDA's numeric enumeration.
 

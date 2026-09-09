@@ -42,7 +42,7 @@ def get_physical_gpu_ids() -> list[int | str]:
         pynvml.nvmlInit()
         return list(range(pynvml.nvmlDeviceGetCount()))
     tokens = [token.strip() for token in raw_visible.split(",") if token.strip()]
-    return [token if token.startswith(("GPU-", "MIG-")) else int(token) for token in tokens]
+    return [token if token.startswith("GPU-") else int(token) for token in tokens]
 
 
 def set_proc_title(name: str) -> None:

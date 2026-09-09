@@ -11,7 +11,6 @@ from prime_rl.utils.process import get_physical_gpu_ids
             "GPU-212c2889-0415-2295-3b10-89c0ea7c17ee,GPU-f225c809-e2de-b466-c7de-3679fca6950a",
             ["GPU-212c2889-0415-2295-3b10-89c0ea7c17ee", "GPU-f225c809-e2de-b466-c7de-3679fca6950a"],
         ),
-        ("MIG-example", ["MIG-example"]),
         ("", []),
     ],
 )

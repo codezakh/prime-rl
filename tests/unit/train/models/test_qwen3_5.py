@@ -23,14 +23,20 @@ def test_lora_storage_keeps_trainable_weights_and_precision_exceptions_fp32(base
     model._keep_in_fp32_modules_strict = ["model.layers.*.mlp.down_proj"]
     config = ModelConfig(
         name="unused",
-        lora=LoRAConfig(rank=32, alpha=32, target_modules=["q_proj", "in_proj_qkv", "gate_proj"]),
+        lora=LoRAConfig(
+            rank=32,
+            alpha=32,
+            target_modules=["q_proj", "in_proj_qkv", "gate_proj"],
+            modules_to_save=["lm_head"],
+        ),
         lora_base_dtype=base_dtype,
     )
     configure_trainable_parameters(model, config)
     trainable = dict((n, p) for n, p in model.named_parameters() if p.requires_grad)
     assert trainable
     assert all(p.dtype == torch.float32 for p in trainable.values())
-    assert all("lora_" in n for n in trainable)
+    assert all("lora_" in n or n.startswith("lm_head.") for n in trainable)
+    assert model.lm_head.weight.requires_grad
     assert model.model.layers[0].linear_attn.A_log.dtype == torch.float32
     assert model.model.layers[0].linear_attn.norm.weight.dtype == torch.float32
     assert model.model.layers[0].mlp.down_proj.weight.dtype == torch.float32
@@ -44,6 +50,13 @@ def test_base_storage_override_requires_lora():
 
     with pytest.raises(ValueError, match="requires LoRA"):
         ModelConfig(name="unused", lora_base_dtype="bfloat16")
+
+
+def test_base_storage_override_rejects_quantization():
+    from prime_rl.configs.trainer import LoRAConfig, ModelConfig
+
+    with pytest.raises(ValueError, match="cannot be combined with quantization"):
+        ModelConfig(name="unused", lora=LoRAConfig(), lora_base_dtype="bfloat16", quantization={"type": "fp8"})
 
 
 def _tiny_text_config(attn_impl: str = "flash_attention_2") -> Qwen3_5TextConfig:
