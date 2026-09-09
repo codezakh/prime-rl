@@ -33,15 +33,16 @@ DEFAULT_INFERENCE_ENV_VARS: dict[str, str] = {
 }
 
 
-def get_physical_gpu_ids() -> list[int]:
-    """Return physical GPU IDs visible to the launcher."""
+def get_physical_gpu_ids() -> list[int | str]:
+    """Return visible numeric GPU indices or CUDA UUID identifiers without renumbering."""
     raw_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
     if raw_visible is None:
         import pynvml
 
         pynvml.nvmlInit()
         return list(range(pynvml.nvmlDeviceGetCount()))
-    return [int(token.strip()) for token in raw_visible.split(",") if token.strip()]
+    tokens = [token.strip() for token in raw_visible.split(",") if token.strip()]
+    return [token if token.startswith(("GPU-", "MIG-")) else int(token) for token in tokens]
 
 
 def set_proc_title(name: str) -> None:
