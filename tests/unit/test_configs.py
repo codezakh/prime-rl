@@ -887,3 +887,32 @@ def test_combined_replay_uses_v2_runner(monkeypatch):
     assert config.enable_return_sampling_mask is True
     assert config.vllm.enable_return_routed_experts is True
     assert os.environ["VLLM_USE_V2_MODEL_RUNNER"] == "1"
+
+
+def test_rl_allows_external_weights_only_initialization_with_a_fresh_orchestrator():
+    config = RLConfig.model_validate(
+        {
+            "ckpt": {"interval": 20},
+            "trainer": {
+                "resume": {"dir": "/shared/old/checkpoints/step_200"},
+                "ckpt": {"skip_progress": True, "skip_optimizer": True, "skip_scheduler": True},
+            },
+            "orchestrator": {"renderer": {"name": "default"}},
+        }
+    )
+    assert config.trainer.resume.dir.name == "step_200"
+    assert config.orchestrator.resume is None
+
+
+@pytest.mark.parametrize("kept", ["skip_progress", "skip_optimizer", "skip_scheduler"])
+def test_rl_rejects_partial_training_state_with_a_fresh_orchestrator(kept):
+    flags = {"skip_progress": True, "skip_optimizer": True, "skip_scheduler": True}
+    flags[kept] = False
+    with pytest.raises(ValueError, match="Trainer resume"):
+        RLConfig.model_validate(
+            {
+                "ckpt": {"interval": 20},
+                "trainer": {"resume": {"dir": "/shared/old/checkpoints/step_200"}, "ckpt": flags},
+                "orchestrator": {"renderer": {"name": "default"}},
+            }
+        )

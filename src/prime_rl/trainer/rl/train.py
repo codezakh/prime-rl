@@ -17,7 +17,7 @@ from torch.profiler import profile, ProfilerActivity, record_function
 from prime_rl.trainer.ckpt import Progress, setup_ckpt_manager
 from prime_rl.trainer.optim import setup_optimizer
 from prime_rl.trainer.scheduler import setup_scheduler
-from prime_rl.configs.trainer import TrainerConfig
+from prime_rl.configs.trainer import CheckpointConfig, TrainerConfig
 from prime_rl.trainer.rl.data import DataLoader, FakeDataLoader
 from prime_rl.utils.cp import (
     gather_for_cp,
@@ -222,18 +222,24 @@ def train(config: TrainerConfig):
     progress = Progress()
     if checkpoint_step is not None:
         resume_dir = config.resume.dir if config.resume else None
+        skip = config.ckpt or CheckpointConfig()
         ckpt_manager.load(
             checkpoint_step,
             model,
             [optimizer],
-            scheduler,
-            progress,
+            scheduler if not skip.skip_scheduler else None,
+            progress if not skip.skip_progress else None,
             path=resume_dir / "trainer" if resume_dir is not None else None,
         )
         # The checkpoint finished step ``checkpoint_step``; resume training at the next step.
-        progress.step += 1
+        if not skip.skip_progress:
+            progress.step += 1
+        # Loading optimizer state can overwrite the fresh scheduler's learning rate.
+        if skip.skip_scheduler:
+            scheduler = setup_scheduler(optimizer, config.scheduler, config.max_steps, config.optim.lr)
         logger.info(
             f"Resuming from step {checkpoint_step} "
+            f"at training step {progress.step} "
             f"(total_tokens={progress.total_tokens}, total_samples={progress.total_samples})"
         )
     else:

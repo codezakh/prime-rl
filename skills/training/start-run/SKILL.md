@@ -159,3 +159,13 @@ Interactive launches auto-start one shared dashboard daemon per user (process ti
 that URL to the researcher. Discovery: `~/.cache/prime-rl/dashboard/daemon.json` holds
 the live `url` (the port can differ from 7788 when it was taken). `--no-dashboard`
 opts a run out.
+
+## RL weights-only warm starts
+
+To initialize a new RL stage from another stage's DCP checkpoint, set
+`trainer.resume.dir` to its `checkpoints/step_N` directory and set
+`trainer.ckpt.skip_progress`, `skip_optimizer`, and `skip_scheduler` to true.
+Keep the top-level `resume` unset so the orchestrator starts a fresh task stream.
+The trainer begins at step 1 with restored model weights and a fresh optimizer
+and schedule. Without the skip flags, ordinary resume retains progress and
+training state. Use a new output directory and compatible model/LoRA settings.

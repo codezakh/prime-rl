@@ -207,10 +207,22 @@ def validate_shared_ckpt_config(
         raise ValueError(
             f"Trainer checkpoint interval ({trainer.ckpt.interval}) and orchestrator checkpoint interval ({orchestrator.ckpt.interval}) are not the same. Please specify the same checkpoint interval for both."
         )
-    if trainer.resume != orchestrator.resume:
+    if trainer.resume != orchestrator.resume and not _model_only_warm_start(trainer, orchestrator):
         raise ValueError(
             f"Trainer resume ({trainer.resume}) and orchestrator resume ({orchestrator.resume}) are not the same. Please specify the same resume config for both."
         )
+
+
+def _model_only_warm_start(trainer: TrainerConfig, orchestrator: OrchestratorConfig) -> bool:
+    return bool(
+        trainer.resume
+        and trainer.resume.dir
+        and orchestrator.resume is None
+        and trainer.ckpt
+        and trainer.ckpt.skip_progress
+        and trainer.ckpt.skip_optimizer
+        and trainer.ckpt.skip_scheduler
+    )
 
 
 def validate_shared_model_name(
