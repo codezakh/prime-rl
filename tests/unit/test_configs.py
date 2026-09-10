@@ -916,3 +916,15 @@ def test_rl_rejects_partial_training_state_with_a_fresh_orchestrator(kept):
                 "orchestrator": {"renderer": {"name": "default"}},
             }
         )
+
+
+def test_rl_rejects_reset_trainer_progress_with_resumed_orchestrator():
+    with pytest.raises(ValueError, match="fresh orchestrator"):
+        RLConfig.model_validate(
+            {
+                "resume": {"dir": "/shared/old/checkpoints/step_200"},
+                "ckpt": {"interval": 20},
+                "trainer": {"ckpt": {"skip_progress": True, "skip_optimizer": True, "skip_scheduler": True}},
+                "orchestrator": {"renderer": {"name": "default"}},
+            }
+        )

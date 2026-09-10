@@ -195,6 +195,11 @@ def validate_shared_ckpt_config(
     trainer: TrainerConfig,
     orchestrator: OrchestratorConfig,
 ) -> None:
+    if trainer.resume and trainer.ckpt and trainer.ckpt.skip_progress and orchestrator.resume:
+        raise ValueError(
+            "Skipping trainer progress requires a fresh orchestrator. Use trainer.resume.dir "
+            "with skip_progress, skip_optimizer and skip_scheduler, and leave top-level resume unset."
+        )
     if trainer.ckpt and not orchestrator.ckpt:
         raise ValueError(
             "Trainer checkpoint config is specified, but orchestrator checkpoint config is not. Please setup checkpointing on both for checkpointing to work properly."
