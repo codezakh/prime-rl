@@ -64,6 +64,42 @@ def test_raise_error_if_no_prompt_and_completion(build_dummy_dataset):
         next(iter(sft_dataset))
 
 
+def test_exact_token_rows_preserve_recorded_ids_and_mask(dummy_renderer):
+    dataset = Dataset.from_list([{"token_ids": [10, 11, _STOP_TOKEN_ID], "loss_mask": [False, True, True]}])
+
+    sample = next(iter(SFTDataset(dataset, dummy_renderer, seq_len=3)))
+
+    assert sample == {
+        "input_ids": [10, 11],
+        "target_ids": [11, _STOP_TOKEN_ID],
+        "loss_mask": [True, True],
+        "position_ids": [0, 1],
+        "seq_lens": [2],
+        "mm_kwargs": None,
+        "mm_token_type_ids": None,
+    }
+
+
+def test_exact_token_rows_reject_overlength_samples(dummy_renderer):
+    dataset = Dataset.from_list([{"token_ids": [10, 11, 12, _STOP_TOKEN_ID], "loss_mask": [False, True, True, True]}])
+
+    with pytest.raises(ValueError, match="4 tokens.*context window \\(3\\)"):
+        next(iter(SFTDataset(dataset, dummy_renderer, seq_len=3)))
+
+
+@pytest.mark.parametrize(
+    ("row", "message"),
+    [
+        ({"token_ids": [10, 1]}, "require a 'loss_mask'"),
+        ({"token_ids": [10, 1], "loss_mask": [True]}, "equal lengths"),
+        ({"token_ids": [10, 1], "loss_mask": [True, False]}, "no trainable"),
+    ],
+)
+def test_exact_token_rows_reject_invalid_masks(dummy_renderer, row, message):
+    with pytest.raises(ValueError, match=message):
+        next(iter(SFTDataset(Dataset.from_list([row]), dummy_renderer, seq_len=2)))
+
+
 @pytest.mark.parametrize("max_epochs", [1, 2, 4])
 def test_sft_first_exhausted(build_dummy_dataset, dummy_renderer, max_epochs: int):
     a = build_dummy_dataset("a", 1)

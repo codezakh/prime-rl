@@ -205,7 +205,7 @@ def _truncate_mm_data(mm: MultiModalData, cut: int) -> MultiModalData:
 
 
 class SFTDataset(StatefulIterableDataset):
-    """A dataset wrapping a HF SFT dataset with prompt/completion or raw messages format."""
+    """A dataset wrapping rendered chats or exact-token rollout samples."""
 
     def __init__(
         self,
@@ -238,7 +238,43 @@ class SFTDataset(StatefulIterableDataset):
             self.num_examples = min(self.num_examples, self.max_examples)
             self.dataset = self.dataset.take(self.max_examples)
 
+    def _process_recorded_tokens(self, example: dict) -> Sample:
+        token_ids = [int(token_id) for token_id in example["token_ids"]]
+        raw_mask = example.get("loss_mask")
+        if raw_mask is None:
+            raise ValueError("Exact-token SFT examples require a 'loss_mask' column")
+        loss_mask = [bool(value) for value in raw_mask]
+        if len(token_ids) != len(loss_mask):
+            raise ValueError("Exact-token SFT token_ids and loss_mask must have equal lengths")
+        if len(token_ids) < 2:
+            raise ValueError("Exact-token SFT examples require at least two tokens")
+        if len(token_ids) > self.seq_len:
+            raise ValueError(
+                f"Exact-token SFT example has {len(token_ids)} tokens, exceeding "
+                f"the configured context window ({self.seq_len})"
+            )
+
+        input_ids = token_ids[:-1]
+        target_ids = token_ids[1:]
+        loss_mask = loss_mask[1:]
+        if not any(loss_mask):
+            raise ValueError("Exact-token SFT example has no trainable next-token targets")
+        if not set(self.renderer.get_stop_token_ids()) & set(target_ids):
+            raise ValueError("Exact-token SFT example does not contain a renderer stop token")
+        return {
+            "input_ids": input_ids,
+            "target_ids": target_ids,
+            "loss_mask": loss_mask,
+            "position_ids": list(range(len(input_ids))),
+            "seq_lens": [len(input_ids)],
+            "mm_kwargs": None,
+            "mm_token_type_ids": None,
+        }
+
     def _process(self, example: dict) -> dict | None:
+        if example.get("token_ids") is not None:
+            return self._process_recorded_tokens(example)
+
         def resolve_messages(example: dict) -> list[dict]:
             # `messages` takes precedence over explicit split fields and is interpreted
             # as a whole-chat training sample with an empty prompt. Null-check rather
