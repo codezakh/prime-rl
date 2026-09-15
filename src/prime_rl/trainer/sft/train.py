@@ -570,6 +570,8 @@ def train(config: SFTConfig):
             logger.info(f"Saving checkpoint at step {progress.step}")
             save_ckpt_start_time = time.perf_counter()
             ckpt_manager.save(progress.step, model, [optimizer], scheduler, progress, dataloader=dataloader)
+            if config.export_adapter:
+                save_lora_adapter(model, config.model.lora, config.run_dir / "adapter" / f"step_{progress.step}")
             save_ckpt_time += time.perf_counter() - save_ckpt_start_time
 
             ckpt_manager.maybe_clean()

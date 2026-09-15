@@ -222,7 +222,7 @@ class SFTConfig(BaseConfig):
     ckpt: CheckpointConfig | None = None
 
     export_adapter: bool = False
-    """Save the final LoRA adapter as a PEFT directory under ``<run_dir>/adapter/step_<N>``, servable by vLLM. Requires ``model.lora``."""
+    """Save LoRA adapters as PEFT directories under ``<run_dir>/adapter/step_<N>``, servable by vLLM: at every ``ckpt.interval`` checkpoint and after the final step. Requires ``model.lora``."""
 
     @model_validator(mode="after")
     def export_adapter_requires_lora(self):
