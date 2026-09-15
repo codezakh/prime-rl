@@ -22,6 +22,7 @@ from prime_rl.utils.pathing import resolve_latest_ckpt_step
 from prime_rl.configs.sft import SFTConfig
 from prime_rl.configs.trainer import CheckpointConfig
 from prime_rl.transports.weights import prune_broadcasts_beyond, setup_weight_sender
+from prime_rl.transports.weights.filesystem import save_lora_adapter
 from prime_rl.utils.cp import setup_cp_params, shard_for_cp
 from prime_rl.trainer.lora import get_lora_state
 from prime_rl.trainer.models.layers.lora import set_lora_num_tokens
@@ -710,6 +711,11 @@ def train(config: SFTConfig):
         logger.info(f"Saving final checkpoint at step {progress.step}")
         ckpt_manager.save(progress.step, model, [optimizer], scheduler, progress, dataloader=dataloader)
         ckpt_manager.maybe_clean()
+
+    if config.export_adapter:
+        adapter_dir = config.run_dir / "adapter" / f"step_{progress.step}"
+        logger.info(f"Exporting final LoRA adapter to {adapter_dir}")
+        save_lora_adapter(model, config.model.lora, adapter_dir)
 
     # Broadcast the final weights so the evals process can run its forced final epoch
     if weight_sender is not None:

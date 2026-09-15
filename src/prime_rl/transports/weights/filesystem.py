@@ -7,6 +7,7 @@ from torch.distributed.tensor import DTensor
 from prime_rl.configs.trainer import FileSystemWeightBroadcastConfig, LoRAConfig
 from prime_rl.orchestrator.clients import load_lora_adapter
 from prime_rl.trainer.lora import get_lora_state, save_lora_config
+from prime_rl.trainer.world import get_world
 from prime_rl.transports.weights.base import FINISHED_MARKER, WeightReceiver, WeightSender
 from prime_rl.utils.pathing import wait_for_path
 from prime_rl.utils.weights import (
@@ -15,6 +16,27 @@ from prime_rl.utils.weights import (
     save_state_dict,
     save_state_dict_parallel,
 )
+
+
+def save_lora_adapter(model: nn.Module, lora_config: LoRAConfig, step_dir: Path) -> None:
+    """Save the PEFT-shaped adapter. Every rank must call this; only the master writes."""
+    world = get_world()
+    state_dict = get_lora_state().adapter_state_dict()
+    for key, value in state_dict.items():
+        if isinstance(value, DTensor):
+            value = value.full_tensor()
+        if world.is_master:
+            state_dict[key] = value.to("cpu", non_blocking=False)
+    if world.is_master:
+        step_dir.mkdir(parents=True, exist_ok=True)
+        save_state_dict(state_dict, step_dir, save_sharded=False, adapter=True)
+        save_lora_config(
+            model,
+            step_dir,
+            rank=lora_config.rank,
+            alpha=lora_config.alpha,
+            dropout=lora_config.dropout,
+        )
 
 
 class FileSystemWeightSender(WeightSender):
@@ -33,23 +55,8 @@ class FileSystemWeightSender(WeightSender):
 
     def _broadcast(self, model: nn.Module, step: int, step_dir: Path) -> None:
         if self.lora_config is not None:
-            # All ranks must participate in DTensor gathering, but only master saves
-            state_dict = get_lora_state().adapter_state_dict()
-            for key, value in state_dict.items():
-                if isinstance(value, DTensor):
-                    value = value.full_tensor()
-                if self.world.is_master:
-                    state_dict[key] = value.to("cpu", non_blocking=False)
-            if self.world.is_master:
-                self.logger.debug(f"Saving adapter to {step_dir}")
-                save_state_dict(state_dict, step_dir, save_sharded=False, adapter=True)
-                save_lora_config(
-                    model,
-                    step_dir,
-                    rank=self.lora_config.rank,
-                    alpha=self.lora_config.alpha,
-                    dropout=self.lora_config.dropout,
-                )
+            self.logger.debug(f"Saving adapter to {step_dir}")
+            save_lora_adapter(model, self.lora_config, step_dir)
         else:
             dist.barrier()
             state_dict = gather_weights_parallel(model)
