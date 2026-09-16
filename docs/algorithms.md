@@ -125,9 +125,10 @@ weight transport publishes each optimizer update.
 For target token t in trajectory i, the loss is `-reward_i * log p(token_t | context)`.
 The CE component divides its summed loss by the global number of nonzero-weight
 target tokens, not by the sum of reward weights. Rewards may be signed but must
-be finite. Zero reward contributes no CE gradient. With fixed batches including
-zero-weight examples, an all-zero batch can still advance optimizer state;
-this mode does not promise that such an optimizer step is a no-op.
+be finite. Zero-weight samples are removed before training, and an all-zero
+batch does not advance the optimizer. With `constant_trainer_batch_size = true`,
+the buffer fills with nonzero-signal traces; with it false, the buffer counts
+arriving traces and removes zero-signal samples when the batch is formed.
 
 The producer supplies the completed trajectory, exact tokens, target masks,
 and rewards. Rewriting, relabeling, selection, and intrinsic reward calculation

@@ -142,7 +142,9 @@ def test_online_sft_rewards_reach_masked_loss_and_gradient(reward):
     import torch
 
     from prime_rl.orchestrator.algo import build_algorithm
+    from prime_rl.trainer.batch import prepare_sample
     from prime_rl.trainer.rl.loss import compute_loss
+    from prime_rl.transports.batch.types import SamplingMask
 
     episode = _make_episode()
     trace = episode.traces[0]
@@ -154,12 +156,17 @@ def test_online_sft_rewards_reach_masked_loss_and_gradient(reward):
 
     assert is_trainable(trace) == (reward != 0)
     sample = trace_to_samples(trace)[0]
+    sample.sampling_mask = SamplingMask(ids=b"", counts=b"\x00" * 24)
     algorithm.prepare_sample(trace, sample, temperature=0.7)
     assert _prune_zero_advantages(sample) == (reward != 0)
     assert sample.ce_weights == [0, 0, reward, reward, 0, reward]
     assert sample.rl_weights == [0] * 6
     assert sample.temperatures == [1] * 6
     assert sample.sampling_mask is None
+    packed = prepare_sample(sample, seq_len=6)
+    assert packed.ce_weights == sample.ce_weights
+    assert packed.loss_mask == sample.mask
+    assert packed.advantages == [0] * 6
     logp = torch.full((6,), -0.5, requires_grad=True)
 
     def no_rl(inputs):
