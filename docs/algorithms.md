@@ -114,6 +114,32 @@ def drop_warnings(rollout, *, patterns: list[str]) -> list[list[bool]]: ...
 
 Component compatibility is validated at config time: frozen-model sampling can only feed the `ce` loss component — the `rl` and `ref_kl` components need the live policy's own sampling logprobs for importance ratios — `opd` pointed at `"policy"` is rejected as degenerate (zero KL), `sft` without a frozen source is rejected (CE on the policy's own tokens is not a distillation target). A group-relative algorithm with `group_size = 1` produces all-zero advantages; the resulting empty batch is caught at runtime (the orchestrator warns and aborts after repeated zero-trainable batches), not at config time.
 
+### Online reward-weighted SFT
+
+Set `[orchestrator.algo] type = "online_sft"` to train supplied action targets
+with scalar reward-weighted cross-entropy. `group_size = 1` admits completed
+trajectories independently; `batch_size` controls when a trainer batch ships.
+Sampling and training overlap through the existing async pipeline, and the
+weight transport publishes each optimizer update.
+
+For target token t in trajectory i, the loss is `-reward_i * log p(token_t | context)`.
+The CE component divides its summed loss by the global number of nonzero-weight
+target tokens, not by the sum of reward weights. Rewards may be signed but must
+be finite. Zero reward contributes no CE gradient. With fixed batches including
+zero-weight examples, an all-zero batch can still advance optimizer state;
+this mode does not promise that such an optimizer step is a no-op.
+
+The producer supplies the completed trajectory, exact tokens, target masks,
+and rewards. Rewriting, relabeling, selection, and intrinsic reward calculation
+belong upstream. The algorithm does not center rewards, require a successful
+comparison trajectory, or apply an importance ratio or reference KL. Training
+uses the model distribution at temperature one without sampling-mask replay;
+the producer's sampling log-probabilities are not part of the SFT loss.
+
+The source defaults to the live policy; a frozen external producer is also
+accepted. Existing policy-version and queue limits apply to live-policy data.
+`[trainer.loss]` configures the RL component and does not change this CE loss.
+
 ### Per-Env Algorithms
 
 Both components resolve per environment. Each env inherits `[orchestrator.algo]` unless it sets its own, so a single run can mix algorithms across envs — e.g. GRPO on math, ECHO on a terminal env:

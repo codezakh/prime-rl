@@ -65,7 +65,7 @@ def is_trainable(trace: vf.Trace) -> bool:
     return any(value != 0.0 for node in trace.nodes for value in node.advantages or [])
 
 
-def stamp_loss_routing(sample: TrainingSample, action_loss_type: ActionLossType) -> None:
+def stamp_loss_routing(sample: TrainingSample, action_loss_type: ActionLossType, action_weight: float = 1.0) -> None:
     """Route action tokens into the algorithm's declared loss component."""
     if action_loss_type == "rl":
         return
@@ -77,7 +77,7 @@ def stamp_loss_routing(sample: TrainingSample, action_loss_type: ActionLossType)
     )
     for i, trains in enumerate(sample.mask):
         if trains:
-            action_weights[i] = 1.0
+            action_weights[i] = action_weight
     if action_loss_type == "ce":
         sample.ce_weights = action_weights
     else:

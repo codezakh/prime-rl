@@ -90,6 +90,13 @@ the default storage behavior. Standalone trainers use `[model]`.
 
 **Algorithms** — `[orchestrator.algo] type = "grpo" | "max_rl" | "rae" | "hierarchical_grpo" | "opd" | "opsd" | "sft" | "echo"` — the type names the algorithm (credit assignment + loss routing, fused), and each type's class defaults are its vetted setting; any other key you set is your own assembly (e.g. `[orchestrator.algo.roles.user] alpha = 0.1` for echo — setting any echo role replaces the whole role table). `hierarchical_grpo` is only valid with a proposer-solver env: it compares solvers with attempts on the same proposed problem and proposers with other proposals in the group. There is no preset layer, and no config hook that points at user code — a new algorithm is a named class in the repo (subclass `Algorithm`, register it). Per-source override: `[orchestrator.train.source.algo] type = "opd"` (the source assembles its own algorithm). prime-rl only hosts the trainable policy; frozen models are inline external endpoints on the algorithm, named where the model is used — `[orchestrator.algo.teacher]` for opd (the frozen model scored against), `[orchestrator.algo.sampling.source]` for sft (the model it samples from), each with `name` + `base_url`. There is no shared `teacher` slot. opsd declares no model — it self-distills against the live policy. See `docs/algorithms.md`.
 
+For reward-weighted online SFT, set `[orchestrator.algo] type = "online_sft"`.
+It accepts live-policy or frozen-source trajectories and weights action CE by
+the supplied scalar reward, without group centering. Use `group_size = 1` for
+independent admission. Rewriting and reward computation remain upstream.
+Training uses temperature one and no sampling-mask replay or importance ratio;
+`trainer.loss` only configures the RL component, not online SFT's CE loss.
+
 **`BaseModel | None` fields** — bare flag enables defaults; nested override enables and sets:
 
 ```bash

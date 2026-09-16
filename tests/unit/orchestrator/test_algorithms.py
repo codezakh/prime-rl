@@ -35,6 +35,8 @@ def _ref_kind(ref):
     ("algorithm_type", "build_kwargs", "source", "action_loss_type"),
     [
         ("grpo", {}, "policy", "rl"),
+        ("online_sft", {}, "policy", "ce"),
+        ("online_sft", {"sampling": {"source": FROZEN}}, "frozen", "ce"),
         ("max_rl", {}, "policy", "rl"),
         ("opd", {"teacher": FROZEN}, "policy", "ref_kl"),
         ("sft", {"sampling": {"source": FROZEN}}, "frozen", "ce"),
@@ -133,6 +135,47 @@ def test_stamp_loss_routing_ce_action():
     assert sample.rl_weights == [0.0] * 6
     assert sample.ce_weights == [0.0, 0.0, 1.0, 1.0, 0.0, 1.0]
     assert sample.ref_kl_weights is None
+
+
+@pytest.mark.parametrize("reward", [0.0, 0.25, 1.0, 2.0, -0.5])
+def test_online_sft_rewards_reach_masked_loss_and_gradient(reward):
+    import torch
+
+    from prime_rl.orchestrator.algo import build_algorithm
+    from prime_rl.trainer.rl.loss import compute_loss
+
+    episode = _make_episode()
+    trace = episode.traces[0]
+    trace.rewards = {"training": vf.Reward(score=reward)}
+    algorithm = build_algorithm(_build(type="online_sft"), MagicMock())
+    sample = trace_to_samples(trace)[0]
+    algorithm.prepare_sample(trace, sample, temperature=0.7)
+    assert sample.ce_weights == [0, 0, reward, reward, 0, reward]
+    assert sample.rl_weights == [0] * 6
+    assert sample.temperatures == [1] * 6
+    assert sample.sampling_mask is None
+    logp = torch.full((6,), -0.5, requires_grad=True)
+
+    def no_rl(inputs):
+        raise AssertionError("online SFT must not invoke the policy-gradient loss")
+
+    loss, _ = compute_loss(
+        [logp],
+        [torch.full((6,), float("nan"))],
+        None,
+        [torch.zeros(6)],
+        [torch.tensor(sample.mask)],
+        [torch.tensor(sample.rl_weights)],
+        [torch.tensor(sample.ce_weights)],
+        None,
+        no_rl,
+        1,
+        3,
+        1,
+    )
+    assert loss.item() == pytest.approx(0.5 * reward)
+    loss.backward()
+    assert logp.grad.tolist() == pytest.approx([0, 0, -reward / 3, -reward / 3, 0, -reward / 3])
 
 
 def test_stamp_loss_routing_keeps_algorithm_written_ce_stream():

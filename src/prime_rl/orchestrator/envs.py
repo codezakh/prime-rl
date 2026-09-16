@@ -136,6 +136,7 @@ class TrainEnv(Env):
             config.sampling.truncates_distribution()
             and config.algo is not None
             and config.algo.sampling.source == "policy"
+            and config.algo.type != "online_sft"
         )
 
 

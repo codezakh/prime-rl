@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, ClassVar
 import verifiers.v1 as vf
 
 from prime_rl.configs.algorithm import ActionLossType, AlgoConfig, FrozenModelConfig
+from prime_rl.orchestrator.algo.routing import stamp_loss_routing
+from prime_rl.transports.batch import TrainingSample
 from prime_rl.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -66,6 +68,15 @@ class Algorithm:
 
     async def score_episode(self, episode: vf.Episode) -> None:
         """Assign rollout-local annotations to one finalized episode."""
+
+    def action_weight(self, trace: vf.Trace) -> float:
+        """Scalar weight applied to this trace's action loss component."""
+        return 1.0
+
+    def prepare_sample(self, trace: vf.Trace, sample: TrainingSample, temperature: float) -> None:
+        """Finalize loss routing on a compiled sample."""
+        sample.temperatures = [temperature] * len(sample.token_ids)
+        stamp_loss_routing(sample, self.action_loss_type, self.action_weight(trace))
 
     async def score_group(self, episodes: list[vf.Episode]) -> None:
         """Assign group-relative annotations to a finalized cohort."""

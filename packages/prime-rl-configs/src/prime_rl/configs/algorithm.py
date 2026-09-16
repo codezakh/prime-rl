@@ -341,6 +341,17 @@ class OPSDAlgoConfig(BaseAlgoConfig):
     to match a non-auto policy renderer."""
 
 
+class OnlineSFTAlgoConfig(BaseAlgoConfig):
+    type: Literal["online_sft"] = "online_sft"
+    """Reward-weighted cross-entropy on supplied action targets, without a group baseline.
+
+    Samples may come from the live policy or a frozen producer. Rewards are
+    signed, finite scalar weights; zero contributes no training signal.
+    """
+
+    action_loss_type: ClassVar[ActionLossType] = "ce"
+
+
 class SFTAlgoConfig(BaseAlgoConfig):
     type: Literal["sft"] = "sft"
     """SFT distillation: cross-entropy on the sampled tokens. The ``ce`` loss
@@ -372,7 +383,8 @@ AlgoConfig: TypeAlias = Annotated[
     | HierarchicalGRPOAlgoConfig
     | OPDAlgoConfig
     | OPSDAlgoConfig
-    | SFTAlgoConfig,
+    | SFTAlgoConfig
+    | OnlineSFTAlgoConfig,
     Field(discriminator="type"),
 ]
 """The training algorithm: sampling plus the per-token training signal (credit
@@ -386,6 +398,7 @@ its class defaults are the vetted setting.
 - ``opd`` — on-policy distillation: policy samples, per-token reverse KL against a reference model. Needs ``teacher``.
 - ``opsd`` — SDFT: policy samples, demo-conditioned reverse KL against the live policy (the teacher is the policy itself).
 - ``sft`` — a frozen model samples, the policy trains with CE on its tokens. Needs a frozen ``sampling.source``.
+- ``online_sft`` — reward-weighted CE on supplied action targets, with no group baseline.
 - ``echo`` — GRPO on action tokens + weighted CE on tool-response observation tokens.
 
 A new credit-assignment scheme is a new named algorithm in code (subclass
