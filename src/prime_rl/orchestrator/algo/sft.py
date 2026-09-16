@@ -4,7 +4,7 @@ import math
 
 import verifiers.v1 as vf
 
-from prime_rl.orchestrator.algo.base import Algorithm
+from prime_rl.orchestrator.algo.base import Algorithm, iter_trainable_traces
 from prime_rl.transports.batch import TrainingSample
 
 
@@ -23,6 +23,14 @@ class OnlineSFTAlgorithm(Algorithm):
     """Consume prepared trajectories with scalar reward weights. No rewriting or baseline."""
 
     action_loss_type = "ce"
+
+    async def score_episode(self, episode: vf.Episode) -> None:
+        for _, trace in iter_trainable_traces([episode]):
+            weight = self.action_weight(trace)
+            for node in trace.nodes:
+                streams = dict(node.loss_weights or {})
+                streams["ce"] = [weight if target else 0.0 for target in node.mask]
+                node.loss_weights = streams
 
     def action_weight(self, trace: vf.Trace) -> float:
         weight = float(trace.reward)

@@ -148,8 +148,14 @@ def test_online_sft_rewards_reach_masked_loss_and_gradient(reward):
     trace = episode.traces[0]
     trace.rewards = {"training": vf.Reward(score=reward)}
     algorithm = build_algorithm(_build(type="online_sft"), MagicMock())
+    asyncio.run(algorithm.finalize_episode(episode))
+    from prime_rl.orchestrator.algo.routing import is_trainable
+    from prime_rl.orchestrator.train_sink import _prune_zero_advantages
+
+    assert is_trainable(trace) == (reward != 0)
     sample = trace_to_samples(trace)[0]
     algorithm.prepare_sample(trace, sample, temperature=0.7)
+    assert _prune_zero_advantages(sample) == (reward != 0)
     assert sample.ce_weights == [0, 0, reward, reward, 0, reward]
     assert sample.rl_weights == [0] * 6
     assert sample.temperatures == [1] * 6
@@ -187,6 +193,17 @@ def test_stamp_loss_routing_keeps_algorithm_written_ce_stream():
     assert sample.rl_weights is None
     assert sample.ce_weights == [0.0, 0.0, 0.0, 0.0, 0.1, 0.0]
     assert sample.ref_kl_weights is None
+
+
+@pytest.mark.parametrize("reward", [float("nan"), float("inf"), -float("inf")])
+def test_online_sft_rejects_nonfinite_rewards(reward):
+    from types import SimpleNamespace
+
+    from prime_rl.orchestrator.algo import build_algorithm
+
+    algorithm = build_algorithm(_build(type="online_sft"), MagicMock())
+    with pytest.raises(ValueError, match="finite reward"):
+        algorithm.action_weight(SimpleNamespace(reward=reward, id="invalid"))
 
 
 def test_stamp_loss_routing_merges_action_weights_into_ce_stream():

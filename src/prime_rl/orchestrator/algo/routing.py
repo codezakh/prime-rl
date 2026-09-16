@@ -61,8 +61,10 @@ def scalar_advantage(trace: vf.Trace) -> float | None:
 
 
 def is_trainable(trace: vf.Trace) -> bool:
-    """Whether any sampled token carries nonzero RL credit."""
-    return any(value != 0.0 for node in trace.nodes for value in node.advantages or [])
+    """Whether the graph carries nonzero RL credit or an explicit loss weight."""
+    return any(value != 0.0 for node in trace.nodes for value in node.advantages or []) or any(
+        weight != 0.0 for node in trace.nodes for weights in (node.loss_weights or {}).values() for weight in weights
+    )
 
 
 def stamp_loss_routing(sample: TrainingSample, action_loss_type: ActionLossType, action_weight: float = 1.0) -> None:

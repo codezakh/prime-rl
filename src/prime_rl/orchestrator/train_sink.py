@@ -35,7 +35,12 @@ def payload_tokens(samples: list[TrainingSample], trace: vf.Trace | None = None)
 def _prune_zero_advantages(sample: TrainingSample) -> bool:
     """Remove zero-advantage tokens from the RL component."""
     if sample.advantages is None:
-        return True
+        return (
+            sample.rl_weights is None
+            or any(sample.rl_weights)
+            or any(sample.ce_weights or [])
+            or any(sample.ref_kl_weights or [])
+        )
 
     if sample.rl_weights is None:
         rl_weights = [1.0 if trainable else 0.0 for trainable in sample.mask]
