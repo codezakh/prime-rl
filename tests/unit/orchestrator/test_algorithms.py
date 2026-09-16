@@ -155,7 +155,10 @@ def test_online_sft_rewards_reach_masked_loss_and_gradient(reward):
     from prime_rl.orchestrator.train_sink import _prune_zero_advantages
 
     assert is_trainable(trace) == (reward != 0)
+    for node in trace.nodes:
+        node.logprobs = []
     sample = trace_to_samples(trace)[0]
+    assert sample.logprobs == [0] * 6
     sample.sampling_mask = SamplingMask(ids=b"", counts=b"\x00" * 24)
     algorithm.prepare_sample(trace, sample, temperature=0.7)
     assert _prune_zero_advantages(sample) == (reward != 0)
