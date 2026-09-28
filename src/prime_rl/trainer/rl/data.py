@@ -73,6 +73,7 @@ class FakeDataLoader:
         self.num_micro_batches = self.batch_size // self.dp_world_size
         self.seq_len = seq_len
         self.generate_samples = config.generate_samples
+        self.loss_component = config.loss_component
         self.batch_counter = 0
 
     def wait_for_batch(self) -> None:
@@ -89,7 +90,14 @@ class FakeDataLoader:
         for micro_batch_idx in range(self.num_micro_batches):
             seed = self.dp_rank * 1000000 + self.batch_counter * 1000 + micro_batch_idx
             generator = torch.Generator().manual_seed(seed)
-            micro_batches.append(get_micro_batch_fn(generator))
+            micro_batch = get_micro_batch_fn(generator)
+            if self.loss_component == "ref_kl":
+                behavior = torch.full_like(micro_batch["inference_logprobs"], -10.0)
+                micro_batch["inference_logprobs"] = behavior
+                micro_batch["ref_logprobs"] = behavior + 1.0
+                micro_batch["rl_weights"] = torch.zeros_like(behavior)
+                micro_batch["ref_kl_weights"] = torch.ones_like(behavior)
+            micro_batches.append(micro_batch)
 
         self.batch_counter += 1
         return micro_batches

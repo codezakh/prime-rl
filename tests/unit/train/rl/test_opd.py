@@ -1,8 +1,23 @@
 """Exact finite-vocabulary checks of the production OPD objective."""
 
+from types import SimpleNamespace
+
 import torch
 
+from prime_rl.configs.trainer import FakeDataLoaderConfig
+from prime_rl.trainer.rl import data
 from prime_rl.trainer.rl.loss import LossInputs, compute_loss, ref_kl_loss_fn
+
+
+def test_full_length_debug_batch_selects_only_opd(monkeypatch):
+    monkeypatch.setattr(data, "get_world", lambda: SimpleNamespace(rank=0, world_size=1))
+    loader = data.FakeDataLoader(FakeDataLoaderConfig(batch_size=1, loss_component="ref_kl"), 65536, 1)
+    batch = loader.get_batch()[0]
+    assert batch["sequence_lengths"] == [65536]
+    assert batch["position_ids"][0, -1] == 65535
+    assert torch.all(batch["rl_weights"] == 0)
+    assert torch.all(batch["ref_kl_weights"] == 1)
+    assert torch.all(batch["ref_logprobs"] - batch["inference_logprobs"] == 1)
 
 
 def test_on_policy_gradient_matches_exact_reverse_kl():

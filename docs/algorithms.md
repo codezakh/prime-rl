@@ -215,6 +215,12 @@ $$
 - `ce` — masked NLL. Used for frozen-model tokens (`sft`) and env-observation tokens (`echo`).
 - `ref_kl` — immediate sampled reverse-KL credit: the detached signal is $\log \pi_{\text{ref}} - \log \mu$, where $\mu$ is the rollout policy. The minimized loss is minus this signal times $\pi_\theta/\mu$, without clipping or an extra drift penalty (`opd`, `opsd`). Requires `ref_logprobs` from [reference scoring](#reference-scoring), using a token-input vLLM endpoint with `prompt_logprobs`. Use temperature one and untruncated sampling for the basic OPD recipe. Token importance weighting does not correct stale rollout state distributions, so bound policy lag.
 
+For trainer-only capacity checks, `[data.fake] loss_component = "ref_kl"`
+supplies synthetic behavior/reference log probabilities and selects only this
+component. With `generate_samples = false`, each microbatch is one unbroken
+`model.seq_len`-token sequence. This exercises the normal forward/backward and
+optimizer path, but synthetic scores are not evidence of distillation learning.
+
 The orchestrator stamps each sample's component membership as per-token weight streams (`rl_weights` / `ce_weights` / `ref_kl_weights` on the wire): a weight scales that component's per-token loss, `0.0` leaves the token out of the component entirely (mask *and* denominator), and components may overlap on the same token — their gradients sum. Each $N$ is the global (all-reduced) count of that component's member tokens, so the components don't dilute each other: adding echo observation tokens never changes the rl term's effective per-token learning rate, and an sft env packed next to a GRPO env doesn't soften its gradient. Tokens of different components pack freely into the same micro batch, and a plain GRPO run ships no weight streams at all (absent streams mean rl weight 1.0 on every trainable token — the unchanged hot path). Advantages always ship per token (`advantages` on the wire), assigned as per-token streams from the start — uniform group credit is broadcast over completion tokens at assignment; algorithms with no rl credit (opd, opsd) ship none.
 
 ### IPO Loss

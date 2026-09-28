@@ -563,6 +563,9 @@ LossConfig: TypeAlias = Annotated[IPOLossConfig | CustomLossConfig, Field(discri
 
 
 class FakeDataLoaderConfig(BaseConfig):
+    loss_component: Literal["rl", "ref_kl"] = "rl"
+    """Component to exercise with synthetic data; ref_kl supplies synthetic reference scores."""
+
     batch_size: int = Field(2, ge=1)
     """Batch size of the fake data loader."""
 
