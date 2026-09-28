@@ -2,7 +2,7 @@
 
 import torch
 
-from prime_rl.trainer.rl.loss import LossInputs, ref_kl_loss_fn
+from prime_rl.trainer.rl.loss import LossInputs, compute_loss, ref_kl_loss_fn
 
 
 def test_on_policy_gradient_matches_exact_reverse_kl():
@@ -41,3 +41,35 @@ def test_stale_rollout_signal_is_frozen_and_environment_tokens_are_ignored():
     assert behavior.grad is None
     assert teacher.grad is None
     assert torch.isfinite(loss)
+
+
+def test_production_dispatch_normalizes_opd_and_ignores_masked_nan_tokens():
+    policy = torch.tensor([-1.0, -2.0, float("nan"), -3.0], requires_grad=True)
+    behavior = torch.tensor([-1.2, -2.2, float("nan"), -2.8], requires_grad=True)
+    teacher = torch.tensor([-0.8, -1.5, float("nan"), -3.2], requires_grad=True)
+    mask = torch.tensor([True, True, False, True])
+
+    def unused_rl_loss(inputs):
+        raise AssertionError("Pure OPD must not call the reward-based loss")
+
+    loss, metrics = compute_loss(
+        trainer_logprobs=list(policy.split(2)),
+        inference_logprobs=list(behavior.split(2)),
+        ref_logprobs=list(teacher.split(2)),
+        advantages=list(torch.zeros(4).split(2)),
+        loss_mask=list(mask.split(2)),
+        rl_weights=list(torch.zeros(4).split(2)),
+        ce_weights=None,
+        ref_kl_weights=list(mask.float().split(2)),
+        rl_loss_fn=unused_rl_loss,
+        rl_scale=1,
+        ce_scale=1,
+        ref_kl_scale=3,
+    )
+    loss.backward()
+    expected = -(teacher[mask] - behavior[mask]).detach() * (policy[mask] - behavior[mask]).detach().exp() / 3
+    torch.testing.assert_close(policy.grad[mask], expected)
+    torch.testing.assert_close(loss.detach(), expected.sum())
+    assert policy.grad[2] == 0
+    assert behavior.grad is None and teacher.grad is None
+    assert "ref_kl/teacher_kl" in metrics
