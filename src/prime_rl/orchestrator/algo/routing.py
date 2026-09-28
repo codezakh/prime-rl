@@ -61,9 +61,16 @@ def scalar_advantage(trace: vf.Trace) -> float | None:
 
 
 def is_trainable(trace: vf.Trace) -> bool:
-    """Whether the graph carries nonzero RL credit or an explicit loss weight."""
-    return any(value != 0.0 for node in trace.nodes for value in node.advantages or []) or any(
-        weight != 0.0 for node in trace.nodes for weights in (node.loss_weights or {}).values() for weight in weights
+    """Whether the graph carries RL credit, teacher scores, or explicit weights."""
+    return (
+        any(value != 0.0 for node in trace.nodes for value in node.advantages or [])
+        or any(node.reference_logprobs is not None and any(node.mask) for node in trace.nodes)
+        or any(
+            weight != 0.0
+            for node in trace.nodes
+            for weights in (node.loss_weights or {}).values()
+            for weight in weights
+        )
     )
 
 

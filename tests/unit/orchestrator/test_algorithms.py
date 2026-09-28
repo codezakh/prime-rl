@@ -275,6 +275,16 @@ def _make_episode() -> vf.Episode:
     return episode
 
 
+def test_teacher_scored_actions_count_as_trainable_without_reward_advantages():
+    from prime_rl.orchestrator.algo.routing import assign_reference_logprobs, is_trainable
+
+    trace = _make_episode().traces[0]
+    assert not is_trainable(trace)
+    for branch in trace.branches:
+        assign_reference_logprobs(branch, [-1.0] * len(branch.token_ids))
+    assert is_trainable(trace)
+
+
 def test_assign_advantages_full_length_stream():
     # The advantage stream is full-length-N: 0.0 on prompt + non-trainable
     # positions, the rl credit on trainable (mask True) tokens.
