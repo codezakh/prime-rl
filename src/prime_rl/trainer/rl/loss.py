@@ -166,12 +166,12 @@ def ipo_loss_fn(inputs: LossInputs, loss_config: IPOLossConfig) -> LossOutputs:
 
 def ref_kl_loss_fn(inputs: LossInputs) -> LossOutputs:
     """
-    Ref-KL loss type (on-policy distillation): the reverse KL to the reference
-    model is the per-token policy-gradient signal, with the importance ratio
-    correcting trainer/inference mismatch and staleness. A one-sided trust
-    region drops tokens whose trainer probability fell more than 0.2 below the
-    inference probability; a squared-log-ratio term regularizes drift. Scalar
-    advantages are not read — ref_kl algorithms ship none.
+    Sampled reverse-KL policy gradient, matching Tinker's immediate-credit OPD.
+
+    The frozen advantage is log teacher minus log rollout policy. Only the
+    importance ratio differentiates through the current policy. No clipping,
+    reward baseline, or additional drift penalty is applied. The caller
+    normalizes the summed loss by the global number of eligible tokens.
     """
     trainer_logprobs = inputs.trainer_logprobs
     inference_logprobs = inputs.inference_logprobs
@@ -181,31 +181,24 @@ def ref_kl_loss_fn(inputs: LossInputs) -> LossOutputs:
     if ref_logprobs is None:
         raise ValueError("ref_kl loss type requires ref_logprobs — use the 'opd' or 'opsd' algorithm.")
 
-    log_importance_ratio, importance_ratio, mismatch_kl = compute_importance_ratio_and_mismatch_kl(
-        trainer_logprobs, inference_logprobs
-    )
-
-    probs_diff = torch.exp(trainer_logprobs) - torch.exp(inference_logprobs)
-    is_masked = probs_diff < -0.2
-    drop_mask = loss_mask & is_masked
-    keep_mask = loss_mask & ~is_masked
-
-    ref_kl = ref_logprobs - trainer_logprobs
-
-    pg_loss = keep_mask * ref_kl.detach() * importance_ratio
-    kl_loss = loss_mask * log_importance_ratio**2
-    per_token_loss = -pg_loss + 1e-3 * kl_loss
+    # Index before arithmetic: masked environment tokens may have placeholder
+    # logprobs and must never contribute NaNs or gradients.
+    policy = trainer_logprobs[loss_mask]
+    behavior = inference_logprobs[loss_mask].detach()
+    teacher = ref_logprobs[loss_mask].detach()
+    importance_ratio = torch.exp(policy - behavior)
+    advantage = teacher - behavior
+    per_token_loss = -advantage * importance_ratio
     if inputs.loss_weights is not None:
-        per_token_loss = per_token_loss * inputs.loss_weights
+        per_token_loss = per_token_loss * inputs.loss_weights[loss_mask]
     loss = per_token_loss.sum()
 
     # Namespaced: the rl loss fn emits same-named trust-region metrics with a
     # different definition, and mixed batches run both fns in one step.
     metrics = {
-        "ref_kl/masked_mismatch_kl": _safe_mean(mismatch_kl, drop_mask),
-        "ref_kl/unmasked_mismatch_kl": _safe_mean(mismatch_kl, keep_mask),
-        "ref_kl/is_masked": _safe_mean(is_masked, loss_mask),
-        "ref_kl": _safe_mean(ref_kl, loss_mask),
+        "ref_kl/teacher_kl": -advantage.mean(),
+        "ref_kl/importance_ratio": importance_ratio.detach().mean(),
+        "ref_kl": advantage.mean(),
     }
 
     return LossOutputs(loss=loss, metrics=metrics)

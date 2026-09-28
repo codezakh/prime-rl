@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -485,11 +486,18 @@ async def prefill_logprobs(openai: AsyncOpenAI, model: str, token_ids: list[int]
     # `prompt_logprobs[i]` is a `{token_id: Logprob}` dict, or `None` for the
     # leading token (no preceding context). Flatten to `list[float]`.
     flat: list[float] = []
-    for entry in response.prompt_logprobs or []:
-        if not entry:
+    entries = response.prompt_logprobs
+    if entries is None or len(entries) != len(token_ids):
+        raise ValueError("Teacher prompt logprobs must cover every input token")
+    for index, (token_id, entry) in enumerate(zip(token_ids, entries, strict=True)):
+        if index == 0 and not entry:
             flat.append(0.0)
             continue
-        first = next(iter(entry.values()))
-        lp = first.logprob if hasattr(first, "logprob") else first.get("logprob")
-        flat.append(float(lp) if lp is not None else 0.0)
+        if not entry or token_id not in entry:
+            raise ValueError(f"Teacher omitted input token {token_id} at position {index}")
+        target = entry[token_id]
+        lp = target.logprob if hasattr(target, "logprob") else target.get("logprob")
+        if lp is None or not math.isfinite(float(lp)):
+            raise ValueError(f"Teacher returned invalid logprob at position {index}")
+        flat.append(float(lp))
     return flat
